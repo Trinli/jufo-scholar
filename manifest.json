@@ -1,0 +1,40 @@
+{
+  "manifest_version": 2,
+  "name": "JUFO Scholar",
+  "version": "1.0.0",
+  "description": "Shows JUFO publication forum levels on Google Scholar profile pages.",
+
+  "permissions": [
+    "storage",
+    "https://scholar.google.com/*",
+    "https://jfp.csc.fi/*"
+  ],
+
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://scholar.google.com/citations*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "browser_action": {
+    "default_title": "JUFO Scholar"
+  },
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "jufo-scholar@ottonyberg",
+      "strict_min_version": "109.0",
+      "data_collection_permissions": {
+        "required": ["none"],
+        "optional": []
+      }
+    }
+  }
+}
