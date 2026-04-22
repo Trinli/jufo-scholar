@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>JUFO Scholar — Custom Mappings</title>
+  <style>
+    body { font-family: sans-serif; font-size: 13px; margin: 0; padding: 12px; width: 480px; }
+    h2 { margin: 0 0 10px; font-size: 14px; }
+    #mappings-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    #mappings-table th { text-align: left; border-bottom: 1px solid #ccc; padding: 4px 6px; }
+    #mappings-table td { padding: 4px 6px; vertical-align: top; word-break: break-word; }
+    #mappings-table tr:nth-child(even) td { background: #f7f7f7; }
+    .del-btn { cursor: pointer; color: #c00; border: none; background: none; font-size: 13px; padding: 0 4px; }
+    #add-row { display: flex; gap: 6px; align-items: flex-start; }
+    #add-row input { flex: 1; padding: 4px 6px; font-size: 13px; border: 1px solid #aaa; border-radius: 3px; }
+    #add-btn { padding: 4px 10px; font-size: 13px; cursor: pointer; }
+    #empty-msg { color: #888; font-style: italic; padding: 4px 6px; }
+  </style>
+</head>
+<body>
+  <h2>Custom venue mappings</h2>
+  <table id="mappings-table">
+    <thead><tr><th>Scholar venue</th><th>JUFO entry name</th><th></th></tr></thead>
+    <tbody id="mappings-body"></tbody>
+  </table>
+  <div id="add-row">
+    <input id="src-input" type="text" placeholder="Scholar venue name">
+    <input id="dst-input" type="text" placeholder="JUFO entry name">
+    <button id="add-btn">Add</button>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -7,8 +7,11 @@
   "permissions": [
     "storage",
     "https://scholar.google.com/*",
-    "https://jfp.csc.fi/*"
+    "https://scholar.googleusercontent.com/*",
+    "https://api.crossref.org/*"
   ],
+
+  "web_accessible_resources": ["jufo-data.json", "default-mappings.json"],
 
   "background": {
     "scripts": ["background.js"],
@@ -17,14 +20,18 @@
 
   "content_scripts": [
     {
-      "matches": ["https://scholar.google.com/citations*"],
+      "matches": [
+        "https://scholar.google.com/citations*",
+        "https://scholar.google.com/scholar*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
   ],
 
   "browser_action": {
-    "default_title": "JUFO Scholar"
+    "default_title": "JUFO Scholar",
+    "default_popup": "popup.html"
   },
 
   "browser_specific_settings": {
