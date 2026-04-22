@@ -36,6 +36,25 @@ const STYLE = `
 #jufo-filter-bar label { font-weight: 600; }
 #jufo-filter-bar select { font-size: 13px; }
 #jufo-count { color: #555; margin-left: auto; }
+#jufo-sort-btn { font-size: 13px; padding: 2px 10px; cursor: pointer; }
+#jufo-sort-btn:disabled { opacity: 0.45; cursor: default; }
+
+#jufo-summary {
+  display: block;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-size: 13px;
+  box-sizing: border-box;
+  width: 100%;
+}
+#jufo-summary table { border-collapse: collapse; width: 100%; }
+#jufo-summary th { font-weight: 600; padding: 2px 8px 4px 0; color: #555; text-align: center; }
+#jufo-summary th:first-child { text-align: left; }
+#jufo-summary td { padding: 2px 8px 2px 0; text-align: center; }
+#jufo-summary td:first-child { text-align: left; }
 
 .jufo-row-2 { border-left: 3px solid #3b82f6; background: rgba(59, 130, 246, 0.05); }
 .jufo-row-3 { border-left: 4px solid #3730a3; background: rgba(55, 48, 163, 0.08); }
@@ -344,10 +363,12 @@ function injectFilterBar() {
       <option value="3">3</option>
     </select>
     ${authorControls}
+    <button id="jufo-sort-btn" type="button" disabled title="Sort by JUFO level (resolving…)">Sort by JUFO</button>
     <span id="jufo-count"></span>
   `;
   anchor.parentNode.insertBefore(bar, anchor);
 
+  document.getElementById("jufo-sort-btn").addEventListener("click", sortByJufo);
   document.getElementById("jufo-min-level").addEventListener("change", (e) => {
     filterMinLevel = parseInt(e.target.value, 10);
     applyFilter();
@@ -388,11 +409,92 @@ async function applyFilter() {
   if (countEl) countEl.textContent = `${shown} / ${rows.length} shown`;
 }
 
+// ── Sort ─────────────────────────────────────────────────────────────────────
+
+function jufoSortKey(level) {
+  // -1 (not found) and NaN (unprocessed) both go to the bottom
+  const n = parseInt(level, 10);
+  return isNaN(n) || n < 0 ? -2 : n;
+}
+
+function sortByJufo() {
+  if (getPageType() === "profile") {
+    const tbody = document.getElementById("gsc_a_b");
+    if (!tbody) return;
+    const rows = Array.from(tbody.querySelectorAll(".gsc_a_tr"));
+    rows.sort((a, b) => jufoSortKey(b.dataset.jufoLevel) - jufoSortKey(a.dataset.jufoLevel));
+    rows.forEach((r) => tbody.appendChild(r));
+  } else {
+    const container = document.getElementById("gs_res_ccl_mid");
+    if (!container) return;
+    const cards = Array.from(container.querySelectorAll(".gs_r.gs_or"));
+    cards.sort((a, b) => {
+      const la = jufoSortKey(a.querySelector("div.gs_ri")?.dataset.jufoLevel);
+      const lb = jufoSortKey(b.querySelector("div.gs_ri")?.dataset.jufoLevel);
+      return lb - la;
+    });
+    cards.forEach((c) => container.appendChild(c));
+  }
+}
+
+function enableSortButton() {
+  const btn = document.getElementById("jufo-sort-btn");
+  if (!btn) return;
+  btn.disabled = false;
+  btn.title = "Sort by JUFO level";
+}
+
+// ── Summary box (profile pages only) ─────────────────────────────────────────
+
+function injectSummaryBox() {
+  if (getPageType() !== "profile") return;
+  if (document.getElementById("jufo-summary")) return;
+  const sidebar = document.getElementById("gsc_rsb")
+    ?? document.querySelector(".gsc_rsb");
+  if (!sidebar) {
+    console.warn("[JUFO Scholar] sidebar not found — summary box not injected");
+    return;
+  }
+  const box = document.createElement("div");
+  box.id = "jufo-summary";
+  box.innerHTML = `
+    <table>
+      <tr><th></th><th>First author</th><th>Last author</th></tr>
+      <tr><td><span class="jufo-badge jufo-3">JUFO 3</span></td><td id="jufo-s-3f">…</td><td id="jufo-s-3l">…</td></tr>
+      <tr><td><span class="jufo-badge jufo-2">JUFO 2</span></td><td id="jufo-s-2f">…</td><td id="jufo-s-2l">…</td></tr>
+      <tr><td><span class="jufo-badge jufo-1">JUFO 1</span></td><td id="jufo-s-1f">…</td><td id="jufo-s-1l">…</td></tr>
+    </table>
+    <div style="margin-top:6px;color:#888;font-size:11px;">Load all articles for complete counts.</div>`;
+  sidebar.insertBefore(box, sidebar.firstChild);
+}
+
+async function updateSummaryBox() {
+  if (getPageType() !== "profile") return;
+  const lastName = getProfileLastName();
+  const rows = getRows();
+  await Promise.all(rows.map((r) => resolveAuthorPosition(r, lastName)));
+  const counts = { 1: { first: 0, last: 0 }, 2: { first: 0, last: 0 }, 3: { first: 0, last: 0 } };
+  for (const row of rows) {
+    const level = parseInt(row.dataset.jufoLevel, 10);
+    if (![1, 2, 3].includes(level)) continue;
+    const pos = row.dataset.jufoAuthor ?? "other";
+    if (pos === "first" || pos === "both") counts[level].first++;
+    if (pos === "last"  || pos === "both") counts[level].last++;
+  }
+  for (const lvl of [1, 2, 3]) {
+    const f = document.getElementById(`jufo-s-${lvl}f`);
+    const l = document.getElementById(`jufo-s-${lvl}l`);
+    if (f) f.textContent = counts[lvl].first;
+    if (l) l.textContent = counts[lvl].last;
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function init() {
   injectStyles();
   injectFilterBar();
+  injectSummaryBox();
 
   const rows = getRows();
   if (rows.length === 0) return;
@@ -440,6 +542,8 @@ async function init() {
 
   await retryWithCrossRef(venueMap);
   applyFilter();
+  enableSortButton();
+  await updateSummaryBox();
 }
 
 
@@ -484,5 +588,6 @@ const observer = new MutationObserver(async () => {
   }
   await retryWithCrossRef(venueMap);
   applyFilter();
+  await updateSummaryBox();
 });
 observer.observe(observerTarget, { childList: true, subtree: true });

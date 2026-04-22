@@ -1,6 +1,6 @@
 # JUFO Scholar
 
-A Firefox extension that shows [JUFO publication forum](https://jufo.fi) levels as coloured badges on Google Scholar profile and search pages.
+A Firefox extension that shows [JUFO publication forum](https://jufo.fi) levels as coloured badges on Google Scholar profile and search pages. This extension is currently based on a downloaded version of the JUFO-database from the 22 of April 2026 under the permissions granted by the CC-BY 4.0 license (https://julkaisufoorumi.fi/fi/julkaisufoorumi/tietoa-julkaisufoorumifi-sivustosta). 
 
 ## What it does
 
@@ -8,8 +8,8 @@ Each publication row gets a badge:
 
 | Badge | Meaning |
 |-------|---------|
-| **JUFO 3** (deep blue) | Leading international forum |
-| **JUFO 2** (blue) | Top-tier forum |
+| **JUFO 3** (magenta) | Leading international forum |
+| **JUFO 2** (blue) | Good forum |
 | **JUFO 1** (light blue) | Basic level forum |
 | **JUFO 0** (grey) | Not rated |
 | **JUFO ?** (grey) | Venue not found |
