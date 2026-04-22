@@ -20,7 +20,7 @@ Unresolved venues are automatically retried via the [CrossRef API](https://api.c
 
 ## Installation
 
-Install from [Firefox Add-ons](https://addons.mozilla.org) *(link pending)*, or load temporarily:
+Install from the release-folder in this repository, or load temporarily the development version:
 
 1. Open `about:debugging` → *This Firefox* → *Load Temporary Add-on*
 2. Select `manifest.json` from this directory
