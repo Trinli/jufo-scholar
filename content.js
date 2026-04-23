@@ -24,6 +24,7 @@ const STYLE = `
 
 #jufo-filter-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
@@ -76,6 +77,8 @@ function getPageType() {
 
 function cleanVenueName(text) {
   return text.trim()
+    .replace(/&amp;/gi, "&")
+    .replace(/^[A-Z][A-Za-z]*\s+['']?\d{2,4}[:\-]\s+(?:[Tt]he\s+)?/, "")
     .replace(/^[Ii]n\s+(?=[A-Z])/,"")
     .replace(/^[Pp]roceedings\s+of\s+(the\s+)?/i, "")
     .replace(/^\d{4}\s+(\d+\w+\s+)?/, "")   // strip leading year "2010 IEEE…" or "2010 10th …"
@@ -204,6 +207,13 @@ function getVenueNameForRow(row) {
 
 // ── Badge management ─────────────────────────────────────────────────────────
 
+let _summaryTimer = null;
+function scheduleSummaryUpdate() {
+  if (getPageType() !== "profile") return;
+  clearTimeout(_summaryTimer);
+  _summaryTimer = setTimeout(updateSummaryBox, 400);
+}
+
 function setBadge(row, level) {
   let badge = row.querySelector(".jufo-badge");
   if (!badge) {
@@ -244,6 +254,8 @@ function setBadge(row, level) {
   highlightEl.classList.remove("jufo-row-2", "jufo-row-3");
   if (level === 2) highlightEl.classList.add("jufo-row-2");
   if (level === 3) highlightEl.classList.add("jufo-row-3");
+
+  if (typeof level === "number" && level >= 1) scheduleSummaryUpdate();
 }
 
 function setPending(row) {
@@ -265,9 +277,24 @@ function normalizeStr(s) {
   return s.normalize("NFD").replace(/\p{Mn}/gu, "").toLowerCase();
 }
 
+const SURNAME_INFIXES = new Set([
+  "van", "de", "den", "der", "von", "la", "le", "du", "di", "del",
+  "te", "ten", "ter", "y", "af", "av", "da", "das", "dos", "des", "al"
+]);
+
+function extractSurname(nameStr) {
+  const parts = normalizeStr(nameStr.trim()).split(/\s+/);
+  if (parts.length === 0) return "";
+  let i = parts.length - 1;
+  // Walk backwards absorbing known infixes, but keep at least one word before (the first name)
+  while (i > 1 && SURNAME_INFIXES.has(parts[i - 1])) i--;
+  return parts.slice(i).join(" ");
+}
+
 function getProfileLastName() {
-  const name = document.querySelector("#gsc_prf_in")?.textContent.trim() ?? "";
-  return normalizeStr(name.split(/\s+/).pop());
+  const name = (document.querySelector("#gsc_prf_in")?.textContent.trim() ?? "")
+    .replace(/,.*$/, "").trim();
+  return extractSurname(name);
 }
 
 function isAuthorListTruncated(row) {
@@ -306,8 +333,8 @@ async function fetchFullAuthors(row) {
 
 function authorPosition(authors, lastName) {
   if (!authors || authors.length === 0) return "other";
-  const first = normalizeStr(authors[0]).includes(lastName);
-  const last  = normalizeStr(authors[authors.length - 1]).includes(lastName);
+  const first = extractSurname(authors[0]) === lastName;
+  const last  = extractSurname(authors[authors.length - 1]) === lastName;
   return first && last ? "both" : first ? "first" : last ? "last" : "other";
 }
 
@@ -344,28 +371,50 @@ function injectFilterBar() {
   const bar = document.createElement("div");
   bar.id = "jufo-filter-bar";
 
-  const authorControls = getPageType() === "profile" ? `
-    <label for="jufo-author-pos" style="margin-left:12px">Author position:</label>
-    <select id="jufo-author-pos">
-      <option value="any">Any</option>
-      <option value="first">First</option>
-      <option value="last">Last</option>
-      <option value="firstlast">First or last</option>
-    </select>` : "";
+  const minLabel = document.createElement("label");
+  minLabel.htmlFor = "jufo-min-level";
+  minLabel.textContent = "Min JUFO level:";
+  bar.appendChild(minLabel);
 
-  bar.innerHTML = `
-    <label for="jufo-min-level">Min JUFO level:</label>
-    <select id="jufo-min-level">
-      <option value="-1">Any</option>
-      <option value="0">0+</option>
-      <option value="1">1+</option>
-      <option value="2">2+</option>
-      <option value="3">3</option>
-    </select>
-    ${authorControls}
-    <button id="jufo-sort-btn" type="button" disabled title="Sort by JUFO level (resolving…)">Sort by JUFO</button>
-    <span id="jufo-count"></span>
-  `;
+  const minSelect = document.createElement("select");
+  minSelect.id = "jufo-min-level";
+  for (const [value, text] of [[-1, "Any"], [0, "0+"], [1, "1+"], [2, "2+"], [3, "3"]]) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = text;
+    minSelect.appendChild(opt);
+  }
+  bar.appendChild(minSelect);
+
+  if (getPageType() === "profile") {
+    const authorLabel = document.createElement("label");
+    authorLabel.htmlFor = "jufo-author-pos";
+    authorLabel.textContent = "Author position:";
+    authorLabel.style.marginLeft = "12px";
+    bar.appendChild(authorLabel);
+
+    const authorSelect = document.createElement("select");
+    authorSelect.id = "jufo-author-pos";
+    for (const [value, text] of [["any", "Any"], ["first", "First"], ["last", "Last"], ["firstlast", "First or last"]]) {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = text;
+      authorSelect.appendChild(opt);
+    }
+    bar.appendChild(authorSelect);
+  }
+
+  const sortBtn = document.createElement("button");
+  sortBtn.id = "jufo-sort-btn";
+  sortBtn.type = "button";
+  sortBtn.disabled = true;
+  sortBtn.title = "Sort by JUFO level (resolving…)";
+  sortBtn.textContent = "Sort by JUFO";
+  bar.appendChild(sortBtn);
+
+  const countSpan = document.createElement("span");
+  countSpan.id = "jufo-count";
+  bar.appendChild(countSpan);
   anchor.parentNode.insertBefore(bar, anchor);
 
   document.getElementById("jufo-sort-btn").addEventListener("click", sortByJufo);
@@ -472,11 +521,12 @@ async function updateSummaryBox() {
   if (getPageType() !== "profile") return;
   const lastName = getProfileLastName();
   const rows = getRows();
-  await Promise.all(rows.map((r) => resolveAuthorPosition(r, lastName)));
+  // Skip pending rows: premature fetchFullAuthors calls can cache "other" permanently.
+  const knownRows = rows.filter(r => [1, 2, 3].includes(parseInt(r.dataset.jufoLevel, 10)));
+  await Promise.all(knownRows.map((r) => resolveAuthorPosition(r, lastName)));
   const counts = { 1: { first: 0, last: 0 }, 2: { first: 0, last: 0 }, 3: { first: 0, last: 0 } };
-  for (const row of rows) {
+  for (const row of knownRows) {
     const level = parseInt(row.dataset.jufoLevel, 10);
-    if (![1, 2, 3].includes(level)) continue;
     const pos = row.dataset.jufoAuthor ?? "other";
     if (pos === "first" || pos === "both") counts[level].first++;
     if (pos === "last"  || pos === "both") counts[level].last++;

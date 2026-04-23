@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9B6BD4"/>
+      <stop offset="100%" stop-color="#5522A8"/>
+    </linearGradient>
+  </defs>
+  <!-- Purple rounded background -->
+  <rect width="48" height="48" rx="10" fill="url(#g)"/>
+  <!-- Bold serif J, slightly left to balance with star -->
+  <text x="20" y="40"
+        font-family="Georgia,'Times New Roman',serif"
+        font-size="36"
+        font-weight="bold"
+        text-anchor="middle"
+        fill="white">J</text>
+  <!-- Gold 5-pointed star, top-right -->
+  <polygon points="39,3 40.4,7.1 44.7,7.1 41.3,9.7 42.5,13.9 39,11.4 35.5,13.9 36.7,9.7 33.3,7.1 37.6,7.1"
+           fill="#FFD700"/>
+</svg>
