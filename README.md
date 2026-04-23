@@ -20,7 +20,7 @@ Unresolved venues are automatically retried via the [CrossRef API](https://api.c
 
 ## Installation
 
-Download the latest version from the release-folder in this repository using Firefox. If installation does not start automatically, drag and drop downloaded file to Firefox.
+Download the latest version from the release-folder in this repository using Firefox. If installation does not start automatically, drag and drop downloaded file to Firefox. If the purple icon does not show up, the addon might need to be enabled. Open a tab and navigate to about:addons.
 For development, load temporarily the development version:
 
 1. Open `about:debugging` → *This Firefox* → *Load Temporary Add-on*
