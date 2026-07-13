@@ -1,14 +1,17 @@
 {
   "manifest_version": 2,
   "name": "JUFO Scholar",
-  "version": "1.4.3",
+  "version": "1.5.0",
   "description": "Shows JUFO publication forum levels on Google Scholar profile pages.",
 
   "permissions": [
     "storage",
+    "unlimitedStorage",
+    "alarms",
     "https://scholar.google.com/*",
     "https://scholar.googleusercontent.com/*",
-    "https://api.crossref.org/*"
+    "https://api.crossref.org/*",
+    "https://jufo-rest.csc.fi/*"
   ],
 
   "icons": {
@@ -19,7 +22,7 @@
   "web_accessible_resources": ["jufo-data.json", "default-mappings.json"],
 
   "background": {
-    "scripts": ["background.js"],
+    "scripts": ["lib/fflate.min.js", "jufo-refresh.js", "background.js"],
     "persistent": false
   },
 

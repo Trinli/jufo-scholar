@@ -15,9 +15,31 @@
     #add-row input { flex: 1; padding: 4px 6px; font-size: 13px; border: 1px solid #aaa; border-radius: 3px; }
     #add-btn { padding: 4px 10px; font-size: 13px; cursor: pointer; }
     #empty-msg { color: #888; font-style: italic; padding: 4px 6px; }
+    #ranking-section, #status-section { margin-bottom: 12px; }
+    #ranking-system { font-size: 13px; padding: 3px 6px; }
+    #status-section { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    #data-status { color: #555; }
+    #refresh-btn { padding: 3px 8px; font-size: 12px; cursor: pointer; }
+    #refresh-btn:disabled { opacity: 0.6; cursor: default; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 0 0 12px; }
   </style>
 </head>
 <body>
+  <div id="ranking-section">
+    <h2>Ranking system</h2>
+    <select id="ranking-system">
+      <option value="fi">Finland (JUFO)</option>
+      <option value="no">Norway (NPI)</option>
+    </select>
+  </div>
+
+  <div id="status-section">
+    <span id="data-status">JUFO data last refreshed: …</span>
+    <button id="refresh-btn" type="button">Refresh now</button>
+  </div>
+
+  <hr>
+
   <h2>Custom venue mappings</h2>
   <table id="mappings-table">
     <thead><tr><th>Scholar venue</th><th>JUFO entry name</th><th></th></tr></thead>

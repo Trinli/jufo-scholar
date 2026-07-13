@@ -17,6 +17,7 @@ const STYLE = `
 .jufo-pending  { background: #eee; color: #888; }
 .jufo-none     { background: #f0f0f0; color: #999; cursor: pointer; }
 .jufo-none:hover { background: #e0e0e0; }
+.jufo-unranked { background: #e5e7eb; color: #6b7280; }
 .jufo-0       { background: #f1f5f9; color: #94a3b8; }
 .jufo-1       { background: #bfdbfe; color: #1e3a5f; }
 .jufo-2       { background: #3b82f6; color: #ffffff; }
@@ -65,6 +66,14 @@ function injectStyles() {
   const el = document.createElement("style");
   el.textContent = STYLE;
   document.head.appendChild(el);
+}
+
+// ── Active ranking system (Finland / Norway) ─────────────────────────────────
+
+let activeSystem = "fi"; // "fi" or "no" — kept in sync with the popup's setting
+
+function systemLabel() {
+  return activeSystem === "no" ? "NO" : "JUFO";
 }
 
 // ── Page type ─────────────────────────────────────────────────────────────────
@@ -146,7 +155,7 @@ async function fetchFullVenueName(row) {
   const title = titleEl?.textContent.trim();
   if (!title) { row.dataset.jufoVenue = ""; return null; }
   try {
-    const url = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(title)}&rows=3&select=title,container-title,event`;
+    const url = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(title)}&rows=3&select=title,container-title,event,ISSN`;
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(resp.status);
     const data = await resp.json();
@@ -156,6 +165,13 @@ async function fetchFullVenueName(row) {
       const itemTitle = norm(item.title?.[0] ?? "");
       if (itemTitle.length < t.length * 0.6) continue;
       if (itemTitle !== t) continue;
+      // This is our best title match — capture its ISSN (if any) for an
+      // exact JUFO lookup, independent of whether a usable venue name is
+      // also found below (see resolveVenues / LOOKUP_ISSN).
+      if (!row.dataset.jufoIssn) {
+        const issn = item.ISSN?.[0];
+        if (issn) row.dataset.jufoIssn = issn;
+      }
       // Prefer event.name (gives specific conference) over container-title (may be a series like PMLR)
       const candidates = [item.event?.name, item["container-title"]?.[0]].filter(Boolean);
       for (const venue of candidates) {
@@ -170,25 +186,66 @@ async function fetchFullVenueName(row) {
   return null;
 }
 
-async function retryWithCrossRef(venueMap) {
-  const unmatched = [...venueMap.values()].flat().filter((r) => r.dataset.jufoLevel === "-1");
-  if (unmatched.length === 0) return;
-  const crossRefMap = new Map();
-  for (const row of unmatched) {
-    const name = await fetchFullVenueName(row);
-    if (!name) { setBadge(row, null); continue; }
-    if (!crossRefMap.has(name)) crossRefMap.set(name, []);
-    crossRefMap.get(name).push(row);
-  }
-  if (crossRefMap.size === 0) return;
-  let r2;
-  try { r2 = await browser.runtime.sendMessage({ type: "LOOKUP", venues: Array.from(crossRefMap.keys()) }); }
-  catch (e) { return; }
-  if (r2?.results) {
-    for (const [venue, level] of Object.entries(r2.results)) {
-      for (const row of crossRefMap.get(venue) || []) setBadge(row, level);
+// ── Venue resolution (ISSN-first, then name-based lookup) ───────────────────
+
+// candidates: [{ row, name }] — name may be null/undefined for rows that
+// only have an ISSN (captured by fetchFullVenueName) and no usable venue
+// name. Resolves every row via setBadge(); never leaves a row pending.
+async function resolveVenues(candidates) {
+  const issnToRows = new Map();
+  for (const { row } of candidates) {
+    const issn = row.dataset.jufoIssn;
+    if (issn) {
+      if (!issnToRows.has(issn)) issnToRows.set(issn, []);
+      issnToRows.get(issn).push(row);
     }
   }
+
+  const resolvedRows = new Set();
+  if (issnToRows.size > 0) {
+    let issnResp;
+    try { issnResp = await browser.runtime.sendMessage({ type: "LOOKUP_ISSN", issns: Array.from(issnToRows.keys()) }); }
+    catch (e) { issnResp = null; }
+    for (const [issn, rowsForIssn] of issnToRows) {
+      const level = issnResp?.results?.[issn];
+      if (level !== undefined) {
+        for (const row of rowsForIssn) { setBadge(row, level); resolvedRows.add(row); }
+      }
+    }
+  }
+
+  const nameToRows = new Map();
+  const unresolvedNoName = [];
+  for (const { row, name } of candidates) {
+    if (resolvedRows.has(row)) continue;
+    if (!name) { unresolvedNoName.push(row); continue; }
+    if (!nameToRows.has(name)) nameToRows.set(name, []);
+    nameToRows.get(name).push(row);
+  }
+  unresolvedNoName.forEach((row) => setBadge(row, undefined));
+
+  if (nameToRows.size === 0) return;
+  let resp;
+  try { resp = await browser.runtime.sendMessage({ type: "LOOKUP", venues: Array.from(nameToRows.keys()) }); }
+  catch (e) {
+    for (const rowsForVenue of nameToRows.values()) rowsForVenue.forEach((r) => setBadge(r, undefined));
+    return;
+  }
+  for (const [venue, rowsForVenue] of nameToRows) {
+    const level = resp?.results?.[venue];
+    for (const row of rowsForVenue) setBadge(row, level);
+  }
+}
+
+async function retryWithCrossRef(candidateRows) {
+  const unmatched = candidateRows.filter((r) => r.dataset.jufoLevel === "not-found");
+  if (unmatched.length === 0) return;
+  const crossRefCandidates = [];
+  for (const row of unmatched) {
+    const name = await fetchFullVenueName(row);
+    crossRefCandidates.push({ row, name });
+  }
+  await resolveVenues(crossRefCandidates);
 }
 
 // ── Routing helpers ───────────────────────────────────────────────────────────
@@ -214,6 +271,7 @@ function scheduleSummaryUpdate() {
   _summaryTimer = setTimeout(updateSummaryBox, 400);
 }
 
+// level: undefined -> not found, null -> non-ranked, number -> a real level.
 function setBadge(row, level) {
   let badge = row.querySelector(".jufo-badge");
   if (!badge) {
@@ -224,30 +282,32 @@ function setBadge(row, level) {
   }
   badge.className = "jufo-badge";
   const venueName = row.dataset.jufoVenue || "";
-  if (level === null || level === undefined) {
+
+  if (level === undefined) {
     badge.classList.add("jufo-none");
     badge.textContent = "JUFO ?";
     badge.title = "Not found — click to look up via CrossRef" + (venueName ? ` · matched: ${venueName}` : "");
     badge.onclick = async (e) => {
       e.stopPropagation();
       delete row.dataset.jufoVenue;
+      delete row.dataset.jufoIssn;
       badge.className = "jufo-badge jufo-pending";
       badge.textContent = "JUFO …";
       badge.onclick = null;
       const name = await fetchFullVenueName(row);
-      if (!name) { setBadge(row, null); return; }
-      let resp;
-      try { resp = await browser.runtime.sendMessage({ type: "LOOKUP", venues: [name] }); }
-      catch (e) { setBadge(row, null); return; }
-      setBadge(row, resp?.results?.[name] ?? null);
+      await resolveVenues([{ row, name }]);
       applyFilter();
     };
+  } else if (level === null) {
+    badge.classList.add("jufo-unranked");
+    badge.textContent = `${systemLabel()} -`;
+    badge.title = "Registered with JUFO but not tiered" + (venueName ? ` · ${venueName}` : "");
   } else {
     badge.classList.add(`jufo-${level}`);
-    badge.textContent = `JUFO ${level}`;
-    badge.title = `JUFO level ${level}` + (venueName ? ` · ${venueName}` : "");
+    badge.textContent = `${systemLabel()} ${level}`;
+    badge.title = `${activeSystem === "no" ? "Norway" : "JUFO"} level ${level}` + (venueName ? ` · ${venueName}` : "");
   }
-  row.dataset.jufoLevel = level !== null && level !== undefined ? String(level) : "-1";
+  row.dataset.jufoLevel = level === undefined ? "not-found" : level === null ? "unranked" : String(level);
 
   // Highlight the full row for levels 2 and 3
   const highlightEl = getPageType() === "search" ? (row.closest(".gs_r") ?? row) : row;
@@ -461,9 +521,11 @@ async function applyFilter() {
 // ── Sort ─────────────────────────────────────────────────────────────────────
 
 function jufoSortKey(level) {
-  // -1 (not found) and NaN (unprocessed) both go to the bottom
+  // Real levels sort by value; "unranked" (a confirmed non-ranked channel)
+  // sits just below level 0; unprocessed/"not-found" rows go to the bottom.
+  if (level === "unranked") return -1;
   const n = parseInt(level, 10);
-  return isNaN(n) || n < 0 ? -2 : n;
+  return isNaN(n) ? -2 : n;
 }
 
 function sortByJufo() {
@@ -539,9 +601,32 @@ async function updateSummaryBox() {
   }
 }
 
+// ── Live updates from the popup (ranking-system switch) ──────────────────────
+
+browser.runtime.onMessage.addListener(async (msg) => {
+  if (msg.type !== "ACTIVE_SYSTEM_UPDATED") return;
+  try {
+    const status = await browser.runtime.sendMessage({ type: "GET_STATUS" });
+    activeSystem = status?.activeSystem ?? "fi";
+  } catch (e) { return; }
+
+  const rows = getRows().filter((r) => r.dataset.jufoVenue || r.dataset.jufoIssn);
+  const candidates = rows.map((row) => ({ row, name: row.dataset.jufoVenue || undefined }));
+  if (candidates.length > 0) await resolveVenues(candidates);
+  applyFilter();
+  await updateSummaryBox();
+});
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function init() {
+  try {
+    const status = await browser.runtime.sendMessage({ type: "GET_STATUS" });
+    if (status?.activeSystem) activeSystem = status.activeSystem;
+  } catch (e) {
+    // Background not ready yet — default to Finland, same as background.js's default.
+  }
+
   injectStyles();
   injectFilterBar();
   injectSummaryBox();
@@ -557,40 +642,22 @@ async function init() {
       truncated.forEach(setPending);
       for (const row of truncated) {
         await fetchFullVenueName(row);
-        if (!row.dataset.jufoVenue) setBadge(row, null);
+        if (!row.dataset.jufoVenue) setBadge(row, undefined);
       }
     }
   }
 
-  const venueMap = new Map();
+  const candidates = [];
   for (const row of rows) {
     const name = getVenueNameForRow(row);
     if (!name) continue;
     setPending(row);
-    if (!venueMap.has(name)) venueMap.set(name, []);
-    venueMap.get(name).push(row);
+    candidates.push({ row, name });
   }
+  if (candidates.length === 0) return;
 
-  if (venueMap.size === 0) return;
-
-  const venues = Array.from(venueMap.keys());
-  let response;
-  try {
-    response = await browser.runtime.sendMessage({ type: "LOOKUP", venues });
-  } catch (e) {
-    console.error("[JUFO Scholar] background not ready", e);
-    return;
-  }
-
-  if (response && response.results) {
-    for (const [venue, level] of Object.entries(response.results)) {
-      for (const row of venueMap.get(venue) || []) {
-        setBadge(row, level);
-      }
-    }
-  }
-
-  await retryWithCrossRef(venueMap);
+  await resolveVenues(candidates);
+  await retryWithCrossRef(candidates.map((c) => c.row));
   applyFilter();
   enableSortButton();
   await updateSummaryBox();
@@ -612,31 +679,21 @@ const observer = new MutationObserver(async () => {
     for (const row of truncated) {
       setPending(row);
       await fetchFullVenueName(row);
-      if (!row.dataset.jufoVenue) setBadge(row, null);
+      if (!row.dataset.jufoVenue) setBadge(row, undefined);
     }
   }
 
-  const venueMap = new Map();
+  const candidates = [];
   for (const row of newRows) {
     const name = getVenueNameForRow(row);
     if (!name) continue;
     setPending(row);
-    if (!venueMap.has(name)) venueMap.set(name, []);
-    venueMap.get(name).push(row);
+    candidates.push({ row, name });
   }
-  if (venueMap.size === 0) return;
+  if (candidates.length === 0) return;
 
-  let response;
-  try {
-    response = await browser.runtime.sendMessage({ type: "LOOKUP", venues: Array.from(venueMap.keys()) });
-  } catch (e) { return; }
-
-  if (response?.results) {
-    for (const [venue, level] of Object.entries(response.results)) {
-      for (const row of venueMap.get(venue) || []) setBadge(row, level);
-    }
-  }
-  await retryWithCrossRef(venueMap);
+  await resolveVenues(candidates);
+  await retryWithCrossRef(candidates.map((c) => c.row));
   applyFilter();
   await updateSummaryBox();
 });
