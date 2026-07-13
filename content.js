@@ -18,10 +18,13 @@ const STYLE = `
 .jufo-none     { background: #f0f0f0; color: #999; cursor: pointer; }
 .jufo-none:hover { background: #e0e0e0; }
 .jufo-unranked { background: #e5e7eb; color: #6b7280; }
-.jufo-0       { background: #f1f5f9; color: #94a3b8; }
-.jufo-1       { background: #bfdbfe; color: #1e3a5f; }
-.jufo-2       { background: #3b82f6; color: #ffffff; }
-.jufo-3       { background: #3730a3; color: #ffffff; }
+/* Colored by rank within whichever system is active (see levelColorClass),
+   not by the literal level number — Finland's 3 and Norway's 2 are both
+   "top", and get the same color, even though the numbers differ. */
+.jufo-base { background: #f1f5f9; color: #94a3b8; }
+.jufo-mid  { background: #bfdbfe; color: #1e3a5f; }
+.jufo-high { background: #3b82f6; color: #ffffff; }
+.jufo-top  { background: #3730a3; color: #ffffff; }
 
 #jufo-filter-bar {
   display: flex;
@@ -58,8 +61,8 @@ const STYLE = `
 #jufo-summary td { padding: 2px 8px 2px 0; text-align: center; }
 #jufo-summary td:first-child { text-align: left; }
 
-.jufo-row-2 { border-left: 3px solid #3b82f6; background: rgba(59, 130, 246, 0.05); }
-.jufo-row-3 { border-left: 4px solid #3730a3; background: rgba(55, 48, 163, 0.08); }
+.jufo-row-high { border-left: 3px solid #3b82f6; background: rgba(59, 130, 246, 0.05); }
+.jufo-row-top  { border-left: 4px solid #3730a3; background: rgba(55, 48, 163, 0.08); }
 `;
 
 function injectStyles() {
@@ -74,6 +77,27 @@ let activeSystem = "fi"; // "fi" or "no" — kept in sync with the popup's setti
 
 function systemLabel() {
   return activeSystem === "no" ? "NO" : "JUFO";
+}
+
+// Finland has 4 real tiers (0-3). Norway's real tiers are just 1 and 2 —
+// its own "0" in the raw API data isn't a graded level the way Finland's
+// 0 is (Norway instead flags predatory venues as a separate category "X",
+// not currently surfaced as its own badge state — see REQUIREMENTS.md).
+function maxLevel() {
+  return activeSystem === "no" ? 2 : 3;
+}
+
+// Colors align by rank across systems, not by the literal number: Norway's
+// level 2 reuses Finland's level-3 color (jufo-top) and Norway's level 1
+// reuses Finland's level-1 color (jufo-mid) — Norway has no equivalent of
+// Finland's level 2 (jufo-high), since it only has two real tiers.
+const LEVEL_COLOR_CLASS = {
+  fi: { 0: "jufo-base", 1: "jufo-mid", 2: "jufo-high", 3: "jufo-top" },
+  no: { 1: "jufo-mid", 2: "jufo-top" },
+};
+
+function levelColorClass(level) {
+  return LEVEL_COLOR_CLASS[activeSystem]?.[level] ?? "jufo-base";
 }
 
 // ── Page type ─────────────────────────────────────────────────────────────────
@@ -303,17 +327,21 @@ function setBadge(row, level) {
     badge.textContent = `${systemLabel()} -`;
     badge.title = "Registered with JUFO but not tiered" + (venueName ? ` · ${venueName}` : "");
   } else {
-    badge.classList.add(`jufo-${level}`);
+    badge.classList.add(levelColorClass(level));
     badge.textContent = `${systemLabel()} ${level}`;
     badge.title = `${activeSystem === "no" ? "Norway" : "JUFO"} level ${level}` + (venueName ? ` · ${venueName}` : "");
   }
   row.dataset.jufoLevel = level === undefined ? "not-found" : level === null ? "unranked" : String(level);
 
-  // Highlight the full row for levels 2 and 3
+  // Highlight the full row for the top two ranks, whatever their numbers are
+  // in the active system (see levelColorClass).
   const highlightEl = getPageType() === "search" ? (row.closest(".gs_r") ?? row) : row;
-  highlightEl.classList.remove("jufo-row-2", "jufo-row-3");
-  if (level === 2) highlightEl.classList.add("jufo-row-2");
-  if (level === 3) highlightEl.classList.add("jufo-row-3");
+  highlightEl.classList.remove("jufo-row-high", "jufo-row-top");
+  if (typeof level === "number") {
+    const rankClass = levelColorClass(level);
+    if (rankClass === "jufo-high") highlightEl.classList.add("jufo-row-high");
+    if (rankClass === "jufo-top") highlightEl.classList.add("jufo-row-top");
+  }
 
   if (typeof level === "number" && level >= 1) scheduleSummaryUpdate();
 }
@@ -332,6 +360,25 @@ function setPending(row) {
 }
 
 // ── Author position (profile pages only) ─────────────────────────────────────
+
+// Used for resolveAuthorPosition batches so we don't fire a burst of
+// simultaneous requests to Scholar's own citation-detail pages, which is
+// what's likely to trip its rate limiter in the first place (see
+// fetchFullAuthors).
+const MAX_CONCURRENT_AUTHOR_FETCHES = 3;
+
+// Runs fn over items with at most `limit` in flight at once, instead of
+// Promise.all's unbounded concurrency.
+async function mapWithConcurrency(items, limit, fn) {
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
 
 function normalizeStr(s) {
   return s.normalize("NFD").replace(/\p{Mn}/gu, "").toLowerCase();
@@ -363,32 +410,51 @@ function isAuthorListTruncated(row) {
   return text.includes("…") || text.includes("...");
 }
 
+// Scholar's own citation-detail pages occasionally rate-limit/error under
+// the concurrent load these lookups create (see MAX_CONCURRENT_AUTHOR_FETCHES
+// below). A single transient failure here used to be cached as "" (no
+// author data) forever, permanently misclassifying that row's author
+// position as "other" with no way to recover short of a page reload. This
+// retries a few times first, and — if still failing — deliberately leaves
+// dataset.jufoFullAuthors unset (instead of caching "") so a later call
+// gets another chance instead of being stuck wrong forever.
 async function fetchFullAuthors(row) {
   if (row.dataset.jufoFullAuthors !== undefined) {
     return row.dataset.jufoFullAuthors ? row.dataset.jufoFullAuthors.split("|") : null;
   }
   const link = row.querySelector(".gsc_a_t a");
   if (!link) { row.dataset.jufoFullAuthors = ""; return null; }
-  try {
-    const resp = await fetch(link.href);
-    if (!resp.ok) throw new Error(resp.status);
-    const html = await resp.text();
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    for (const field of doc.querySelectorAll("#gsc_oci_table .gs_scl")) {
-      if (field.querySelector(".gsc_oci_field")?.textContent.trim() === "Authors") {
-        const value = field.querySelector(".gsc_oci_value")?.textContent.trim();
-        if (value) {
-          const authors = value.split(",").map((a) => a.trim());
-          row.dataset.jufoFullAuthors = authors.join("|");
-          return authors;
-        }
+
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const resp = await fetch(link.href);
+      if (!resp.ok) throw new Error(String(resp.status));
+      const html = await resp.text();
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      // The field *label* is localized to the profile's Scholar UI language
+      // (e.g. "Tekijät" instead of "Authors" for hl=fi) so matching against
+      // the English string "Authors" silently fails for non-English
+      // profiles — every time, not just transiently, so retries never help.
+      // The Authors field is reliably the *first* row in this table
+      // regardless of language, so match by position instead.
+      const value = doc.querySelector("#gsc_oci_table .gs_scl .gsc_oci_value")?.textContent.trim();
+      if (value) {
+        const authors = value.split(",").map((a) => a.trim());
+        row.dataset.jufoFullAuthors = authors.join("|");
+        return authors;
       }
+      // Page loaded fine but had no fields at all — nothing to retry.
+      row.dataset.jufoFullAuthors = "";
+      return null;
+    } catch (e) {
+      if (attempt === MAX_ATTEMPTS) {
+        console.warn("[JUFO Scholar] failed to fetch paper detail after retries, will retry on next update instead of guessing", e);
+        return null; // not cached — see comment above
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
     }
-  } catch (e) {
-    console.warn("[JUFO Scholar] failed to fetch paper detail", e);
   }
-  row.dataset.jufoFullAuthors = "";
-  return null;
 }
 
 function authorPosition(authors, lastName) {
@@ -402,6 +468,13 @@ async function resolveAuthorPosition(row, lastName) {
   if (row.dataset.jufoAuthor !== undefined) return row.dataset.jufoAuthor;
   if (isAuthorListTruncated(row)) {
     const authors = await fetchFullAuthors(row);
+    if (authors === null && row.dataset.jufoFullAuthors === undefined) {
+      // fetchFullAuthors gave up after retries without caching a result —
+      // return a best-effort "other" for this call, but don't lock it in,
+      // so a later resolve pass (filter change, system switch, next
+      // summary update) gets a fresh chance instead of staying wrong.
+      return "other";
+    }
     row.dataset.jufoAuthor = authorPosition(authors, lastName);
   } else {
     const grays = row.querySelectorAll(".gsc_a_t .gs_gray");
@@ -415,6 +488,41 @@ async function resolveAuthorPosition(row, lastName) {
 
 let filterMinLevel = -1;
 let filterAuthor = "any";
+
+// [-1,"Any"],[0,"0+"],[1,"1+"],...,[maxLevel,"maxLevel"] — adapts to however
+// many real tiers the active system has (Finland: 0-3, Norway: 0-2).
+function minLevelOptions() {
+  const max = maxLevel();
+  const opts = [[-1, "Any"]];
+  for (let lvl = 0; lvl < max; lvl++) opts.push([lvl, `${lvl}+`]);
+  opts.push([max, String(max)]);
+  return opts;
+}
+
+function populateMinLevelSelect(select) {
+  select.innerHTML = "";
+  for (const [value, text] of minLevelOptions()) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = text;
+    select.appendChild(opt);
+  }
+  // Reset to "Any" if the previous selection no longer exists in this
+  // system's range (e.g. "3" selected, then switched to Norway which tops
+  // out at 2).
+  if (filterMinLevel > maxLevel()) filterMinLevel = -1;
+  select.value = String(filterMinLevel);
+}
+
+// Rebuilds parts of the filter bar that depend on the active system
+// (currently just the min-level options and its label) without touching
+// the rest of the bar or its listeners.
+function refreshFilterBarForSystem() {
+  const minLabel = document.querySelector('label[for="jufo-min-level"]');
+  if (minLabel) minLabel.textContent = `Min ${systemLabel()} level:`;
+  const minSelect = document.getElementById("jufo-min-level");
+  if (minSelect) populateMinLevelSelect(minSelect);
+}
 
 function injectFilterBar() {
   if (document.getElementById("jufo-filter-bar")) return;
@@ -433,17 +541,12 @@ function injectFilterBar() {
 
   const minLabel = document.createElement("label");
   minLabel.htmlFor = "jufo-min-level";
-  minLabel.textContent = "Min JUFO level:";
+  minLabel.textContent = `Min ${systemLabel()} level:`;
   bar.appendChild(minLabel);
 
   const minSelect = document.createElement("select");
   minSelect.id = "jufo-min-level";
-  for (const [value, text] of [[-1, "Any"], [0, "0+"], [1, "1+"], [2, "2+"], [3, "3"]]) {
-    const opt = document.createElement("option");
-    opt.value = value;
-    opt.textContent = text;
-    minSelect.appendChild(opt);
-  }
+  populateMinLevelSelect(minSelect);
   bar.appendChild(minSelect);
 
   if (getPageType() === "profile") {
@@ -494,7 +597,7 @@ async function applyFilter() {
   const rows = getRows();
 
   if (!isSearch && filterAuthor !== "any") {
-    await Promise.all(rows.map((row) => resolveAuthorPosition(row, lastName)));
+    await mapWithConcurrency(rows, MAX_CONCURRENT_AUTHOR_FETCHES, (row) => resolveAuthorPosition(row, lastName));
   }
 
   let shown = 0;
@@ -557,43 +660,70 @@ function enableSortButton() {
 
 // ── Summary box (profile pages only) ─────────────────────────────────────────
 
+// The real, countable tiers for the active system, top-first: Finland has
+// 3/2/1 (level 0 isn't "good enough" to summarize), Norway has 2/1.
+function summaryLevels() {
+  return activeSystem === "no" ? [2, 1] : [3, 2, 1];
+}
+
+function renderSummaryBoxContents(box) {
+  const rows = summaryLevels().map((lvl) => `
+      <tr><td><span class="jufo-badge ${levelColorClass(lvl)}">${systemLabel()} ${lvl}</span></td><td id="jufo-s-${lvl}f">…</td><td id="jufo-s-${lvl}l">…</td></tr>`).join("");
+  box.innerHTML = `
+    <table>
+      <tr><th></th><th>First author</th><th>Last author</th></tr>${rows}
+    </table>
+    <div style="margin-top:6px;color:#888;font-size:11px;">Load all articles for complete counts.</div>`;
+}
+
 function injectSummaryBox() {
   if (getPageType() !== "profile") return;
-  if (document.getElementById("jufo-summary")) return;
+  let box = document.getElementById("jufo-summary");
+  if (box) { renderSummaryBoxContents(box); return; } // rebuild for a system switch
   const sidebar = document.getElementById("gsc_rsb")
     ?? document.querySelector(".gsc_rsb");
   if (!sidebar) {
     console.warn("[JUFO Scholar] sidebar not found — summary box not injected");
     return;
   }
-  const box = document.createElement("div");
+  box = document.createElement("div");
   box.id = "jufo-summary";
-  box.innerHTML = `
-    <table>
-      <tr><th></th><th>First author</th><th>Last author</th></tr>
-      <tr><td><span class="jufo-badge jufo-3">JUFO 3</span></td><td id="jufo-s-3f">…</td><td id="jufo-s-3l">…</td></tr>
-      <tr><td><span class="jufo-badge jufo-2">JUFO 2</span></td><td id="jufo-s-2f">…</td><td id="jufo-s-2l">…</td></tr>
-      <tr><td><span class="jufo-badge jufo-1">JUFO 1</span></td><td id="jufo-s-1f">…</td><td id="jufo-s-1l">…</td></tr>
-    </table>
-    <div style="margin-top:6px;color:#888;font-size:11px;">Load all articles for complete counts.</div>`;
+  renderSummaryBoxContents(box);
   sidebar.insertBefore(box, sidebar.firstChild);
 }
 
+// updateSummaryBox is called both explicitly (after a resolve batch fully
+// completes) and from a debounce timer (scheduleSummaryUpdate, fired as
+// individual badges resolve). Those can overlap and finish out of order —
+// e.g. a debounce-triggered call starting on a partial snapshot can take
+// longer (author-position lookups hit Scholar's own citation-detail pages,
+// which can be slow/rate-limited) than a later, more-complete explicit
+// call, and would otherwise overwrite the correct totals with a stale
+// partial count. This generation counter makes a stale call discard its
+// own results instead of writing them once a newer call has started.
+let _summaryGeneration = 0;
+
 async function updateSummaryBox() {
   if (getPageType() !== "profile") return;
+  const myGeneration = ++_summaryGeneration;
   const lastName = getProfileLastName();
   const rows = getRows();
-  // Skip pending rows: premature fetchFullAuthors calls can cache "other" permanently.
-  const knownRows = rows.filter(r => [1, 2, 3].includes(parseInt(r.dataset.jufoLevel, 10)));
-  await Promise.all(knownRows.map((r) => resolveAuthorPosition(r, lastName)));
-  const counts = { 1: { first: 0, last: 0 }, 2: { first: 0, last: 0 }, 3: { first: 0, last: 0 } };
+  const levels = summaryLevels();
+  // Only rows with a real countable level matter for these counts anyway;
+  // this also avoids resolving author position for rows still pending a
+  // JUFO lookup.
+  const knownRows = rows.filter(r => levels.includes(parseInt(r.dataset.jufoLevel, 10)));
+  await mapWithConcurrency(knownRows, MAX_CONCURRENT_AUTHOR_FETCHES, (r) => resolveAuthorPosition(r, lastName));
+  if (myGeneration !== _summaryGeneration) return; // a newer call superseded this one
+  const counts = {};
+  levels.forEach((lvl) => { counts[lvl] = { first: 0, last: 0 }; });
   for (const row of knownRows) {
     const level = parseInt(row.dataset.jufoLevel, 10);
     const pos = row.dataset.jufoAuthor ?? "other";
     if (pos === "first" || pos === "both") counts[level].first++;
     if (pos === "last"  || pos === "both") counts[level].last++;
   }
-  for (const lvl of [1, 2, 3]) {
+  for (const lvl of levels) {
     const f = document.getElementById(`jufo-s-${lvl}f`);
     const l = document.getElementById(`jufo-s-${lvl}l`);
     if (f) f.textContent = counts[lvl].first;
@@ -609,6 +739,9 @@ browser.runtime.onMessage.addListener(async (msg) => {
     const status = await browser.runtime.sendMessage({ type: "GET_STATUS" });
     activeSystem = status?.activeSystem ?? "fi";
   } catch (e) { return; }
+
+  refreshFilterBarForSystem();
+  injectSummaryBox(); // rebuilds labels/rows for the new system's tiers
 
   const rows = getRows().filter((r) => r.dataset.jufoVenue || r.dataset.jufoIssn);
   const candidates = rows.map((row) => ({ row, name: row.dataset.jufoVenue || undefined }));

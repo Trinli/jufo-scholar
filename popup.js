@@ -69,13 +69,20 @@ getMappings().then(render);
 
 // ── Ranking system switch ─────────────────────────────────────────────────
 
+function updateRankingNote(system) {
+  document.getElementById("ranking-note").style.display = system === "no" ? "block" : "none";
+}
+
 async function initRankingSystem() {
   const stored = await browser.storage.local.get("activeRankingSystem");
-  document.getElementById("ranking-system").value = stored.activeRankingSystem === "no" ? "no" : "fi";
+  const system = stored.activeRankingSystem === "no" ? "no" : "fi";
+  document.getElementById("ranking-system").value = system;
+  updateRankingNote(system);
 }
 
 document.getElementById("ranking-system").addEventListener("change", async (e) => {
   const system = e.target.value === "no" ? "no" : "fi";
+  updateRankingNote(system);
   await browser.storage.local.set({ activeRankingSystem: system });
   browser.runtime.sendMessage({ type: "ACTIVE_SYSTEM_UPDATED" }).catch(() => {});
 });

@@ -31,6 +31,21 @@ The JUFO API also carries Norway's national ranking for the same channels
 rating). Click the toolbar button to switch between them — badges relabel
 to **NO 2** / **NO -** / etc. under Norway, so it's always clear which
 system a badge reflects. The switch applies live to any open Scholar tabs.
+
+Colors follow *rank*, not the literal number: Finland has 4 tiers (0-3),
+Norway has 2 (1-2, with predatory venues flagged separately as category "X"
+rather than a graded level), so Norway's top tier (2) gets the same magenta
+as Finland's top tier (3), Norway's other tier (1) gets the same light blue
+as Finland's lowest real tier (1) — a badge's color always means the same
+relative standing regardless of which system produced the number.
+
+**⚠️ Norway support is implemented but not yet manually verified** — the
+popup shows a warning when it's selected. Finland/JUFO has been checked
+against real profiles; Norway hasn't. Treat its levels with caution until
+that's done, and see `REQUIREMENTS.md` (FR-11, open question 7.10) for the
+known unknowns (e.g. whether raw `Norway_Level:"0"` really is the
+predatory-"X" flag).
+
 Denmark's ranking isn't supported yet (see `REQUIREMENTS.md`, FR-11).
 
 ## Installation

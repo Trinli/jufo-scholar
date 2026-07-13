@@ -49,11 +49,21 @@ iteration — see [§10](#10-future-phase-chromechromium-port).
   route; the API's own terms of use were not stated on the documentation page
   and should be confirmed (see [open question 7.4](#7-open-questions)).
 - JUFO's own model above (`Level`) is not the only national ranking the API
-  exposes: channel records also carry **Norway's** (`Norway_Level`, scale
-  `0`/`1`/`2`, no level 3) and **Denmark's** (`Denmark_Level`, scale `1`/`2`)
-  rankings, from those countries' independent evaluation panels. These
-  disagree with Finland's rating on a substantial share of channels — see
-  FR-11.
+  exposes: channel records also carry **Norway's** (`Norway_Level`) and
+  **Denmark's** (`Denmark_Level`) rankings, from those countries'
+  independent evaluation panels. These disagree with Finland's rating on a
+  substantial share of channels — see FR-11.
+  **Correction (per direct domain feedback, supersedes the "scale 0-2"
+  claim in earlier drafts of this document):** Norway's real graded tiers
+  are only **1** and **2** — there is no genuine "level 0" the way Finland
+  has one. Norway instead flags predatory venues as a separate category,
+  "X", which does not appear to be distinguished from a real level in the
+  raw `Norway_Level` field we've observed (`"0"`/`"1"`/`"2"`/`""`) — the
+  raw `"0"` value likely *is* that predatory flag, not a graded rating, but
+  this hasn't been confirmed against JUFO/CSC directly. Badge/color logic
+  should treat Norway's `0` as "unclassified/not a real tier" rather than
+  as equivalent to Finland's genuine level 0, until this is confirmed (see
+  [open question 7.10](#8-open-questions)).
 
 ## 3. Current functionality (baseline)
 
@@ -397,6 +407,10 @@ data-layer migration, not a UI redesign, except where FR-9 requires the one
 new state to be surfaced.
 
 ### FR-11: Support switching the active ranking system (Finland / Norway; Denmark deferred)
+**Status: implemented, Finland verified against real profiles, Norway not
+yet manually verified.** The popup shows a warning note when Norway is
+selected, pending that verification.
+
 The JUFO API's channel records also carry Norway's and Denmark's national
 publication-ranking levels (`Norway_Level`, `Denmark_Level`), not just
 Finland's. Decision: add a single **active-system switch** (dropdown/toggle,
@@ -413,11 +427,19 @@ deliberately deferred (see rationale below and [open question 7.9](#8-open-quest
   inspection of a live download. Both fit the existing FR-1/FR-2 design
   (local dictionary refreshed on a schedule, zero extra live calls) at no
   additional architectural cost.
-- **Norway uses a different scale than Finland**: confirmed values are
-  `"0"`/`"1"`/`"2"` (no level 3), vs. Finland's `"0"`–`"3"` plus the
-  non-ranked empty-string state from FR-9. The UI (badge palette, filter
-  dropdown's max option, summary box breakdown) SHALL adapt its range to
-  whichever system is active rather than assuming a fixed 0–3 scale.
+- **Norway uses a different scale than Finland, and it's narrower than we
+  first assumed**: the raw `Norway_Level` field takes values `"0"`/`"1"`/
+  `"2"`/`""`, but per direct domain correction, Norway's only *real* graded
+  tiers are **1 and 2** — raw `"0"` is not a genuine "level 0" the way
+  Finland's is; Norway instead flags predatory venues as a separate "X"
+  category, which the raw `"0"` value likely represents (unconfirmed — see
+  [open question 7.10](#8-open-questions)). Badge colors (FR-9-adjacent):
+  Norway's level 2 reuses Finland's level-3 color, Norway's level 1 reuses
+  Finland's level-1 color — Finland's level-2 color has no Norway
+  equivalent, since Norway only has two real tiers. The UI (badge palette,
+  filter dropdown's max option, summary box breakdown) SHALL adapt its
+  range to whichever system is active rather than assuming a fixed 0–3
+  scale.
 - The two systems **disagree often**: of 21,945 channels with both a
   Finnish and a Norwegian level set, ~23% (5,137) differ — e.g. IEEE CVPR is
   Finland level 2 but Norway level 1. This is expected (independent national
@@ -482,6 +504,13 @@ deliberately deferred (see rationale below and [open question 7.9](#8-open-quest
 9. Should Denmark support (FR-11) eventually use a lazy-fetch-and-cache
    design, or is it worth asking CSC whether `Denmark_Level` could be added
    to `massa.json.zip` — deferred rather than answered for this iteration.
+10. Does raw `Norway_Level:"0"` actually mean "predatory (category X)", as
+    domain feedback suggests, or something else? If confirmed, should it get
+    its own distinct badge/color (e.g. a warning treatment) instead of
+    rendering as a plain `NO 0` — currently it falls back to the same grey
+    "base" color as a non-graded value, which doesn't actively mislabel it
+    as a real low tier, but also doesn't flag it as a predatory-venue
+    warning either.
 
 ## 9. Out of scope (for this iteration)
 
