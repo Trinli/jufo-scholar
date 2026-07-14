@@ -527,29 +527,60 @@ deliberately deferred (see rationale below and [open question 7.9](#8-open-quest
 
 ## 10. Future phase: Chrome/Chromium port
 
-Noted as a stated goal for later, not for this iteration — recorded here so
-current work doesn't have to guess at it, but without expanding this pass's
-scope.
+**Status: in progress.** The structure described below is built and the
+first real bug it surfaced is already fixed; Chrome-side testing is
+ongoing.
 
-- **Manifest V3 is effectively required**: Chrome stopped accepting new
-  Manifest V2 extensions in its Web Store, so the port isn't just "add a
-  Chrome entry to `manifest.json`" — it needs the background script
-  migrated from a persistent/event page (`background.scripts` +
-  `persistent: false`, current `manifest.json`) to an MV3 service worker,
-  which has a different lifecycle (can be killed/restarted between
-  messages, so anything relying on in-memory state living across calls —
-  e.g. `jufoData`/`customMappings` in `background.js` today — needs to
-  tolerate being reloaded from storage rather than assuming it's always
-  warm).
-- **`browser.*` vs `chrome.*` namespace**: all current code
-  (`content.js`, `background.js`, `popup.js`) uses the `browser.*`
-  WebExtensions API, which Chrome doesn't natively support (Chrome uses
-  `chrome.*`, callback-based unless wrapped). A cross-browser build would
-  need either the `webextension-polyfill` library or an explicit
-  `chrome.*`-based fork of the messaging/storage calls.
-- **No action needed now** — this is purely a forward-looking note so that,
-  when the Chrome port is picked up, it isn't a surprise how much of the
-  current architecture (manifest, background script lifecycle, API
-  namespace) needs to change. Nothing in FR-1 through FR-11 should be
-  designed around Chrome compatibility at this stage; keep building for
-  Firefox as today.
+- **Manifest V3 is required, resolved**: `manifest.firefox.json` (MV2,
+  unchanged from the shipped Firefox config) and `manifest.chrome.json`
+  (MV3) are separate source manifests; `package.py` stages
+  `build/<target>/manifest.json` per target, since both browsers require
+  that exact filename. `background.chrome.js` is a small `importScripts()`
+  shim standing in for Firefox's `background.scripts` array — it loads the
+  same files in the same order, so the module-level state in
+  `background.js` (`jufoNames`, `customMappings`, etc.) is populated the
+  same way either way. The "tolerate being reloaded from storage" concern
+  originally noted here turned out to already be satisfied: `loadData()`'s
+  existing `if (jufoNames) return;` guard, called at the top of every
+  message handler, naturally re-populates state from `storage.local` if a
+  service-worker restart cleared it — no extra code was needed.
+- **`browser.*` vs `chrome.*` namespace, resolved**: `lib/browser-polyfill.min.js`
+  (Mozilla's `webextension-polyfill`, vendored) is loaded ahead of every
+  other script in the Chrome manifest and in `popup.html`. No `chrome.*`
+  fork was needed — the existing `browser.*` code works unchanged.
+- **New, not anticipated by this section originally: content-script
+  cross-origin fetch.** `content.js`'s CrossRef lookup
+  (`fetchFullVenueName`) called `fetch()` directly on `api.crossref.org`
+  from within the content script. This works in Firefox (content scripts
+  get the extension's cross-origin privileges for hosts covered by
+  `permissions`) but fails in Chrome with `TypeError: Failed to fetch` —
+  confirmed via real-device testing, and confirmed *not* caused by
+  Scholar's own CSP (checked live response headers: no
+  `Content-Security-Policy` header at all). Chrome content scripts simply
+  don't get the extension's cross-origin fetch privileges the way Firefox's
+  do, even with matching `host_permissions` declared — only
+  background/extension pages do. **Fixed** by relaying the fetch through
+  the background script via a new `CROSSREF_LOOKUP` message (same pattern
+  as `LOOKUP`/`LOOKUP_ISSN`), which works identically in both browsers —
+  verified against the live CrossRef API. Worth treating as a general rule
+  for any future content-script network calls: do the fetch in the
+  background script and relay the result, don't fetch directly from
+  `content.js`.
+- **New, not anticipated by this section originally: icon format.** Chrome
+  doesn't render SVG for extension icons (the `icons` manifest field or
+  `action.default_icon`) the way Firefox does — confirmed via real-device
+  testing: Chrome silently fell back to a generic grey initial-letter
+  placeholder instead of showing an error, which made this easy to mistake
+  for something else at first (it was reported alongside an unrelated badge
+  icon that turned out to just be Chrome's normal "unpacked/developer
+  extension" indicator, not an error). **Fixed** by generating PNGs at
+  16/32/48/128px from the existing `icons/icon.svg` (via `rsvg-convert`)
+  and pointing `manifest.chrome.json`'s `icons` and `action.default_icon`
+  at those instead. Firefox's manifest is untouched — it renders the SVG
+  fine, no reason to change a working config. The PNGs live alongside the
+  SVG in `icons/`; regenerate them from the SVG if the icon design ever
+  changes (`rsvg-convert -w <size> -h <size> icon.svg -o icon-<size>.png`).
+- **Not yet done**: full manual verification on Chrome (loaded via
+  `chrome://extensions` → *Load unpacked* → `build/chrome/`), a Chrome Web
+  Store submission, and Denmark/other still-deferred items from FR-11
+  remain out of scope regardless of browser target.

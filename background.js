@@ -128,6 +128,21 @@ browser.runtime.onMessage.addListener(async (msg) => {
     return JufoRefresh.maybeRefresh(true);
   }
 
+  if (msg.type === "CROSSREF_LOOKUP") {
+    // Fetched here rather than directly in content.js: Chrome doesn't grant
+    // content scripts the extension's cross-origin fetch privileges (even
+    // with host_permissions declared) the way Firefox does — only
+    // extension pages like this background script get that. See README's
+    // Firefox/Chrome support section.
+    try {
+      const resp = await fetch(msg.url);
+      if (!resp.ok) return { ok: false, status: resp.status };
+      return { ok: true, data: await resp.json() };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  }
+
   if (msg.type === "LOOKUP") {
     const results = {};
     for (const venue of msg.venues) {

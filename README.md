@@ -51,10 +51,56 @@ Denmark's ranking isn't supported yet (see `REQUIREMENTS.md`, FR-11).
 ## Installation
 
 Download the latest version from the release-folder in this repository using Firefox. If installation does not start automatically, drag and drop downloaded file to Firefox. If the purple icon does not show up, the addon might need to be enabled. Open a tab and navigate to about:addons.
-For development, load temporarily the development version:
 
-1. Open `about:debugging` → *This Firefox* → *Load Temporary Add-on*
-2. Select `manifest.json` from this directory
+### Building for development
+
+The extension supports both Firefox and Chrome from one shared source tree
+(see [Firefox/Chrome support](#firefoxchrome-support) below). Both browsers
+require the manifest file to be literally named `manifest.json`, so — since
+this repo keeps a separate manifest per target (`manifest.firefox.json`,
+`manifest.chrome.json`) — you stage a per-browser build before loading it,
+rather than pointing either browser at the repo root directly:
+
+```
+python package.py
+```
+
+This writes `build/firefox/` and `build/chrome/`, each a complete,
+ready-to-load copy of the extension with the right `manifest.json` in
+place. Pass `firefox` or `chrome` to build just one.
+
+Then load the staged build temporarily:
+
+- **Firefox**: `about:debugging` → *This Firefox* → *Load Temporary Add-on* → select `build/firefox/manifest.json`
+- **Chrome**: `chrome://extensions` → enable *Developer mode* → *Load unpacked* → select the `build/chrome/` folder
+
+## Firefox/Chrome support
+
+One shared source tree targets both browsers. Only two things actually
+have to differ, everything else — `background.js`, `content.js`,
+`popup.html`/`popup.js`, `jufo-refresh.js`, the data files — is identical
+between targets:
+
+- **The manifest.** Chrome requires Manifest V3; Firefox still uses
+  Manifest V2 here. `manifest.firefox.json` and `manifest.chrome.json` are
+  the two source-of-truth manifests; `package.py` copies the right one into
+  `build/<target>/manifest.json` (neither browser will load a manifest
+  under any other filename, which is why the repo root no longer has a
+  bare `manifest.json`).
+- **The background entry point.** MV3 needs a single service-worker file
+  instead of Firefox's list of background scripts. `background.chrome.js`
+  is a small shim that just `importScripts()`s the same files
+  (`browser-polyfill.min.js`, `fflate.min.js`, `jufo-refresh.js`,
+  `background.js`) that Firefox's manifest lists directly — the actual
+  logic in those files doesn't know or care which target loaded it.
+
+The rest of the gap is `browser.*` vs `chrome.*`: all the code is written
+against `browser.*` (Firefox's native, promise-based API). Chrome only has
+`chrome.*` natively, so `lib/browser-polyfill.min.js` (Mozilla's
+[webextension-polyfill](https://github.com/mozilla/webextension-polyfill),
+vendored) is loaded ahead of every other script — background, content
+script, and popup — to make `browser.*` work the same way on Chrome too.
+It's a no-op on Firefox, where `browser` already exists natively.
 
 ## Custom venue mappings
 
@@ -103,11 +149,14 @@ it's still useful as a historical snapshot).
 
 | File | Purpose |
 |------|---------|
-| `manifest.json` | Extension manifest |
+| `manifest.firefox.json` / `manifest.chrome.json` | Per-browser manifest (MV2 / MV3) — `package.py` copies the right one to `build/<target>/manifest.json` |
+| `package.py` | Stages `build/firefox/` and `build/chrome/` from the shared source + the right manifest |
 | `content.js` | Badge injection, CrossRef/ISSN lookups, ranking-system UI updates |
 | `background.js` | Data loading, venue/ISSN lookup, message handling |
+| `background.chrome.js` | MV3 service-worker entry point (Chrome only) — `importScripts()`s the same files Firefox's manifest lists directly |
 | `jufo-refresh.js` | Background live refresh from the JUFO API (fetch, unzip, transform) |
 | `lib/fflate.min.js` | Vendored zip-decompression library used by `jufo-refresh.js` |
+| `lib/browser-polyfill.min.js` | Vendored Mozilla `webextension-polyfill` — makes `browser.*` work on Chrome too |
 | `popup.html` / `popup.js` | Ranking-system switch, refresh status, custom mapping editor |
 | `jufo-data.json` | Bundled first-run/offline fallback venue database |
 | `default-mappings.json` | Bundled default custom mappings |

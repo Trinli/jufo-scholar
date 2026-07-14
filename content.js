@@ -180,9 +180,12 @@ async function fetchFullVenueName(row) {
   if (!title) { row.dataset.jufoVenue = ""; return null; }
   try {
     const url = `https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(title)}&rows=3&select=title,container-title,event,ISSN`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(resp.status);
-    const data = await resp.json();
+    // Relayed through the background script rather than fetched directly
+    // here — Chrome blocks cross-origin fetch() from content scripts even
+    // with host_permissions declared, unlike Firefox (see background.js).
+    const resp = await browser.runtime.sendMessage({ type: "CROSSREF_LOOKUP", url });
+    if (!resp?.ok) throw new Error(resp?.error || `HTTP ${resp?.status}`);
+    const data = resp.data;
     const norm = (s) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[-–—]/g, " ").replace(/\s+/g, " ").trim();
     const t = norm(title);
     for (const item of data.message?.items ?? []) {

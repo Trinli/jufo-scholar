@@ -52,6 +52,10 @@
     <input id="dst-input" type="text" placeholder="JUFO entry name">
     <button id="add-btn">Add</button>
   </div>
+  <!-- No-op on Firefox (which already has a native `browser` global); makes
+       it available under Chrome too, so popup.js can use the same browser.*
+       calls on both targets. -->
+  <script src="lib/browser-polyfill.min.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>
