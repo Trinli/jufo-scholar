@@ -1,1 +1,7 @@
 *.xpi
+build/
+__pycache__/
+.DS_Store
+Dockerfile
+devcontainer.json
+*.csv
