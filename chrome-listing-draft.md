@@ -77,10 +77,22 @@ Displays JUFO and Norwegian national publication-forum ranking badges on
 Google Scholar profile and search-result pages, based on the venue of each
 publication shown.
 
-**Permission justifications** (one text box per requested permission):
-- `storage` / `unlimitedStorage` — caches the JUFO venue ranking database
-  (~5MB) and user-defined custom venue-name mappings locally, so lookups
-  work without a network call on every page view.
+**Permission justifications** (one text box per requested permission — fill
+in both `storage` and `unlimitedStorage`, they're asking two different
+things):
+- `storage` — caches the JUFO venue/ISSN ranking lookup index and
+  user-defined custom venue-name mappings locally (`browser.storage.local`),
+  so lookups work without a network call on every Scholar page view, and so
+  the cached data survives across browser restarts.
+- `unlimitedStorage` — the cached lookup index itself is already ~5.17MB
+  (42,365 venue-name entries + 61,684 ISSN entries as of this build), which
+  is at or past the default storage.local quota most browsers enforce
+  without this permission (5-10MB depending on version). This dataset is
+  refreshed automatically from JUFO's live bulk export on a schedule (see
+  the `alarms` justification below) and grows over time as JUFO adds
+  channels/ISSNs, so the default quota would eventually cause the
+  background refresh to fail with quota errors — unlimitedStorage is
+  needed to keep that refresh reliable, not for arbitrary storage growth.
 - `alarms` — schedules a once-daily background check that refreshes the
   local venue database from the JUFO API.
 - **Host permissions** (`scholar.google.com`, `scholar.googleusercontent.com`,
