@@ -50,7 +50,8 @@ Denmark's ranking isn't supported yet (see `REQUIREMENTS.md`, FR-11).
 
 ## Installation
 
-Download the latest version from the release-folder in this repository using Firefox. If installation does not start automatically, drag and drop downloaded file to Firefox. If the purple icon does not show up, the addon might need to be enabled. Open a tab and navigate to about:addons.
+Firefox: https://addons.mozilla.org/en-US/firefox/addon/jufo-scholar/
+Chrome: https://chromewebstore.google.com/detail/icjfmnpdiopmjnocobjppgllnphokhdd
 
 ### Building for development
 
